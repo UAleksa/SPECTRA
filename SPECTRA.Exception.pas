@@ -111,6 +111,13 @@ end;
 
 procedure ShowForm(ErrorInfo: TStringList; ErrMsg: string);
 begin
+  if pnlBottom.Height <> 42 then btnExpand.Click;
+  frm.Width:= 400;
+  frm.Height:= 170;
+  frm.Constraints.MinHeight:= 170;
+  frm.Constraints.MinWidth:= 400;
+  frm.Constraints.MaxWidth:= 600;
+  frm.Constraints.MaxHeight:= frm.Height + 160;
   mem.Clear;
   mem.Lines.AddStrings(ErrorInfo);
   lbl.Caption:= ErrMsg;
@@ -152,7 +159,6 @@ begin
 
   frm.Width:= 400;
   frm.Height:= 170;
-  frm.Caption:= 'Ошибка';
   frm.Position:= poScreenCenter;
   frm.Caption:= Application.Title;
   frm.Icon:= Application.Icon;
