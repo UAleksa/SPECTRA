@@ -36,6 +36,16 @@ resourcestring
   //Log
   sAppendersListEmpty = 'Appenders list is empty';
 
+  //Exception
+  sExceptionClass = 'Exception class: %s';
+  sExceptionMessage = 'Exception message: %s';
+  sExceptionAddr = 'Exception address: %p';
+  sStackList = 'Stack list, generated %s';
+  sExceptionStack = 'Exception stack';
+  sDetailsIntro = 'Exception log with detailed tech info. Generated on %s.' + string(#13#10) +
+                  ' Application title: %s' + string(#13#10) +
+                  ' Application file: %s';
+
 implementation
 
 end.
