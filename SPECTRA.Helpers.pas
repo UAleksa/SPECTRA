@@ -2,26 +2,10 @@ unit SPECTRA.Helpers;
 
 interface
 
-uses SPECTRA.Messages, System.Generics.Collections, System.SysUtils,
-  System.Types, System.Generics.Defaults, SPECTRA.Consts, SPECTRA.Enumerable;
+uses System.SysUtils, System.Types, System.Generics.Defaults,
+  System.Generics.Collections;
 
 type
-  TObjectHelper = class helper for TObject
-  public
-    procedure Auto(Tag: string='');
-    procedure AutoDisable;
-    function AutoLocal: IInterface;
-    function Clone: TObject;
-    function IsAuto(Tag: string=''): boolean;
-    function IsSubscribed: boolean; overload;
-    function IsSubscribed(const MessageID: NativeUInt): boolean; overload;
-    function Subscribe(const aMessageClass: TClass; const ListenerMethod: TMessageFunc): NativeUInt; overload;
-    function Subscribe(const MessageID: NativeUInt; const ListenerMethod: TMessageFunc): NativeUInt; overload;
-    function Subscribe(const ListenerMethod: TMessageFunc): NativeUInt; overload;
-    procedure UnSubscribe(Immediate: boolean=false); overload;
-    procedure UnSubscribe(const MessageID: NativeUInt; Immediate: boolean=false); overload;
-  end;
-
   TArrayHelper = class helper for TArray
   public
     class procedure Add<T>(var Source: TArray<T>; Element: T); static;
@@ -48,102 +32,9 @@ type
 
 implementation
 
-uses SPECTRA.GC, System.TypInfo, System.SysConst, Data.DBXJSON,
-  Data.DBXJSONReflect, System.JSON;
+uses
+  System.TypInfo, System.SysConst, SPECTRA.Consts;
 
-{ TObjectHelper }
-
-procedure TObjectHelper.Auto(Tag: string);
-begin
-  if Tag.IsEmpty then
-    GC.Add(Self, Self.GetHashCode.ToString)
-  else
-    GC.Add(Self, Tag);
-end;
-
-procedure TObjectHelper.AutoDisable;
-begin
-  GC.Remove(Self.GetHashCode.ToString);
-end;
-
-function TObjectHelper.AutoLocal: IInterface;
-begin
-  Result:= TFreeTheValue.Create(Self);
-end;
-
-function TObjectHelper.Clone: TObject;
-var
-  MarshalObj: TJSONMarshal;
-  UnMarshalObj: TJSONUnMarshal;
-  JSONValue: TJSONValue;
-begin
-  Result:= nil;
-
-  MarshalObj:= TJSONMarshal.Create;
-  try
-    UnMarshalObj:= TJSONUnMarshal.Create;
-    try
-      JSONValue:= MarshalObj.Marshal(Self);
-      try
-        if Assigned(JSONValue) then
-          Result:= UnMarshalObj.Unmarshal(JSONValue);
-      finally
-        JSONValue.Free;
-      end;
-    finally
-      UnMarshalObj.Free;
-    end;
-  finally
-    MarshalObj.Free;
-  end;
-end;
-
-function TObjectHelper.IsAuto(Tag: string): boolean;
-begin
-  if Tag.IsEmpty then
-    Result:= (GC.ObjectByTag(Self.GetHashCode.ToString) <> nil)
-  else
-    Result:= (GC.ObjectByTag(Tag) <> nil);
-end;
-
-function TObjectHelper.IsSubscribed(const MessageID: NativeUInt): boolean;
-begin
-  Result:= Msgs.IsSubscribed(Self, MessageID);
-end;
-
-function TObjectHelper.IsSubscribed: boolean;
-begin
-  Result:= Msgs.IsSubscribed(Self);
-end;
-
-function TObjectHelper.Subscribe(const MessageID: NativeUInt;
-  const ListenerMethod: TMessageFunc): NativeUInt;
-begin
-  Result:= Msgs.Subscribe(Self, MessageID, ListenerMethod);
-end;
-
-function TObjectHelper.Subscribe(
-  const ListenerMethod: TMessageFunc): NativeUInt;
-begin
-  Result:= Msgs.Subscribe(Self, ListenerMethod);
-end;
-
-procedure TObjectHelper.UnSubscribe(const MessageID: NativeUInt;
-  Immediate: boolean);
-begin
-  Msgs.UnSubscribe(Self, MessageID, Immediate);
-end;
-
-procedure TObjectHelper.UnSubscribe(Immediate: boolean);
-begin
-  Msgs.UnSubscribe(Self, Immediate);
-end;
-
-function TObjectHelper.Subscribe(const aMessageClass: TClass;
-  const ListenerMethod: TMessageFunc): NativeUInt;
-begin
-  Result:= Msgs.Subscribe(Self, aMessageClass, ListenerMethod);
-end;
 
 { TEnumHelper }
 
@@ -367,5 +258,7 @@ class function TArrayHelper.IsEmpty<T>(const Source: TArray<T>): boolean;
 begin
   Result:= Length(Source) = 0;
 end;
+
+
 
 end.

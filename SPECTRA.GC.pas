@@ -2,7 +2,7 @@ unit SPECTRA.GC;
 
 interface
 
-uses SPECTRA.Collections, System.SysUtils;
+uses SPECTRA.Messages, System.SysUtils, SPECTRA.Utils, SPECTRA.List;
 
 type
   TCollectPredicate = reference to function (tag: string): Boolean;
@@ -10,6 +10,7 @@ type
   TFreeTheValue = class(TInterfacedObject)
   private
     FObjectToFree: TObject;
+
   public
     constructor Create(anObjectToFree: TObject);
     destructor Destroy; override;
@@ -26,12 +27,22 @@ type
     public
       constructor Create(aKey: string; aValue: TObject; aDispose: boolean);
     end;
+
+    TOwnerPair = record
+      Hash: string;
+      Tag: string;
+    public
+      constructor Create(aHash: string; aTag: string);
+    end;
   private
+    FSubscribed: boolean;
     FLockObject: TObject;
     FGCPairs: IList<TGCPair>;
+    FOwnPairs: IList<TOwnerPair>; //ILinkedList<TOwnerPair>;
 
     procedure Lock;
     procedure UnLock;
+    function Listener(const MessageID: NativeUInt; const Msg: TMessage): NativeInt;
   protected
     constructor Create;
     destructor Destroy; override;
@@ -46,11 +57,15 @@ type
     ///   Пример: aList:= TStringList.Create;
     ///           Add&lt;TStringList&gt;(aList);
     /// </remarks>
-    procedure Add<T: class>(Item: T; const tag: string = DEFAULT_TAG);
+    procedure Add<T: class>(Item: T; const tag: string = DEFAULT_TAG); overload;
+
+    procedure Add<T: class>(Item: T; aOwner: TObject; const tag: string = DEFAULT_TAG);  overload;
     /// <summary>
     ///  очищает память для объектов с тэгом tag
     /// </summary>
     procedure Collect(const tag: string = DEFAULT_TAG); overload;
+
+    procedure Collect(const tags: TArray<string>); overload;
     /// <summary>
     ///  очищает память для объектов с тэгом tag = ClassName
     /// </summary>
@@ -112,11 +127,12 @@ type
 
 var
   GC: TGC;
+  GCHash: NativeUInt;
 
 implementation
 
 uses
-  System.TypInfo, SPECTRA.Messages;
+  System.TypInfo, SPECTRA.Consts, Winapi.Windows;
 
 var
   IGC: IInterface;
@@ -152,6 +168,45 @@ begin
   end;
 end;
 
+procedure TGC.Add<T>(Item: T; aOwner: TObject; const tag: string);
+var
+  fItem: TGCPair;
+  sTag: string;
+begin
+  Lock;
+  try
+    if tag <> DEFAULT_TAG then
+      sTag:= tag
+    else
+      {$IFDEF MSWINDOWS}
+      sTag:= PTypeInfo(TypeInfo(T))^.Name;
+      {$ELSE}
+      sTag:= PTypeInfo(TypeInfo(T))^.Name.ToString;
+      {$ENDIF MSWINDOWS}
+
+
+    if not FGCPairs.FindItem(fItem,
+      function(aItem: TGCPair): boolean
+      begin
+        Result:= Pointer(aItem.Value) = Pointer(Item)
+      end)
+    then
+    begin
+      if not FSubscribed then
+      begin
+        Msgs.Subscribe(Self, CM_DESTROING, Listener);
+        FSubscribed:= true;
+      end;
+      FGCPairs.Add(TGCPair.Create(sTag, Item, false));
+
+      if Assigned(aOwner) then
+        FOwnPairs.Add(TOwnerPair.Create(aOwner.GetHashCode.ToString,sTag));
+    end;
+  finally
+    UnLock;
+  end;
+end;
+
 procedure TGC.Collect(const tag: string);
 begin
   Lock;
@@ -180,6 +235,27 @@ begin
   end;
 end;
 
+procedure TGC.Collect(const tags: TArray<string>);
+var
+  I: Integer;
+  J: Integer;
+begin
+  if Length(tags) = 0 then Exit;
+
+  Lock;
+  try
+    for I:= FGCPairs.Count-1 downto 0 do
+      for J := Low(tags) to High(tags) do
+        if SameText(FGCPairs[I].Key, tags[J]) then
+        begin
+          FGCPairs.Delete(I);
+          Break;
+        end;
+  finally
+    UnLock;
+  end;
+end;
+
 procedure TGC.Collect<T>;
 begin
   {$IFDEF MSWINDOWS}
@@ -191,8 +267,11 @@ end;
 
 constructor TGC.Create;
 begin
+  FSubscribed:= false;
   FLockObject:= TObject.Create;
   FGCPairs:= TList<TGCPair>.Create;
+  FOwnPairs:= TList<TOwnerPair>.Create;; //TLinkedList<TOwnerPair>.Create;
+
   FGCPairs.DefaultFreeItem(
     procedure(aItem: TGCPair)
     begin
@@ -204,8 +283,17 @@ begin
         if Msgs.IsSubscribed(aItem.Value) then
           Msgs.UnSubscribe(aItem.Value, true);
 
-        FreeAndNil(aItem.Value);
+        if Assigned(aItem.Value) then
+          SPECTRA.Utils.FreeObject(aItem.Value);
       end;
+    end);
+
+  //FOwnPairs.DefaultFreeNode(
+  FOwnPairs.DefaultFreeItem(
+    procedure(aItem: TOwnerPair)
+    begin
+      aItem.Hash:= '';
+      aItem.Tag:= '';
     end);
 end;
 
@@ -214,6 +302,8 @@ begin
   Lock;
   try
     FGCPairs.Clear;
+    FOwnPairs.Clear;
+
     inherited;
   finally
     UnLock;
@@ -249,6 +339,31 @@ begin
             begin
               Result:= aItem.Value = Obj;
             end)
+end;
+
+function TGC.Listener(const MessageID: NativeUInt;
+  const Msg: TMessage): NativeInt;
+var
+  Tags: TArray<string>;
+  Hash: string;
+begin
+  if Msg is TMessage<NativeUInt> then
+    if MessageID = CM_DESTROING then
+    begin
+      Hash:= (Msg as TMessage<NativeUInt>).Value.ToString;
+
+      FOwnPairs.ToCustom(procedure(Item: TOwnerPair)
+                         begin
+                           if SameStr(Item.Hash, Hash) then
+                           begin
+                             SetLength(Tags, Length(Tags)+1);
+                             Tags[High(Tags)]:= Item.Tag;
+                           end;
+                         end);
+
+      if Length(Tags) > 0 then
+        Collect(Tags);
+    end;
 end;
 
 procedure TGC.Lock;
@@ -392,7 +507,10 @@ begin
   if Msgs.IsSubscribed(FObjectToFree) then
     Msgs.UnSubscribe(FObjectToFree, true);
 
-  FreeAndNil(FObjectToFree);
+  if GCHash = FObjectToFree.GetHashCode then
+    FreeAndNil(FObjectToFree)
+  else
+    SPECTRA.Utils.FreeObject(FObjectToFree);
   inherited;
 end;
 
@@ -405,8 +523,17 @@ begin
   bDispose:= aDispose;
 end;
 
+{ TGC.TOwnerPair }
+
+constructor TGC.TOwnerPair.Create(aHash, aTag: string);
+begin
+  Hash:= aHash;
+  Tag:= aTag;
+end;
+
 initialization
   GC:= TGC.Create;
+  GCHash:= GC.GetHashCode;
   IGC:= TFreeTheValue.Create(GC);
 
 end.

@@ -3,9 +3,6 @@ unit SPECTRA.Async;
 interface
 
 uses
-  {$IFDEF MSWINDOWS}
-  Vcl.ExtCtrls,
-  {$ENDIF MSWINDOWS}
   System.SysUtils, System.Messaging, SPECTRA.Messages, System.Classes,
   System.Threading, System.Types, System.SyncObjs;
 
@@ -186,9 +183,14 @@ implementation
 
 uses
   {$IFDEF MSWINDOWS}
-  Winapi.Windows, Vcl.Forms,
+  Winapi.Windows,
+    {$IF NOT DECLARED(FireMonkeyVersion)}
+      Vcl.Forms,
+    {$ELSE}
+      FMX.Forms,
+    {$IFEND}
   {$ENDIF MSWINDOWS}
-  SPECTRA.Helpers, SPECTRA.GC, SPECTRA.Collections, FMX.Dialogs,
+  FMX.Dialogs,
   SPECTRA.Consts;
 
 const

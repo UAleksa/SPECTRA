@@ -4,11 +4,10 @@ interface
 
 uses
   {$IFDEF MSWINDOWS}
-  Winapi.Windows, Winapi.Messages, Winapi.ActiveX, Vcl.Graphics,
+  Winapi.Windows, Winapi.Messages, Winapi.ActiveX,
   {$ENDIF MSWINDOWS}
   System.SysUtils, System.Variants, System.Classes,
-  System.Generics.Collections, System.Generics.Defaults, System.RTLConsts,
-  System.Types, System.Rtti;
+  System.Generics.Defaults, System.RTLConsts, System.Types, System.Rtti;
 
 type
   TProcIndex<T> = reference to procedure (Arg: T; Index: Integer);
@@ -821,7 +820,7 @@ type
 implementation
 
 uses
-  System.TypInfo, SPECTRA.Consts;
+  System.TypInfo, SPECTRA.Consts, System.Generics.Collections;
 
 constructor TSPEnumerable<T>.Create(const Source: TArray<T>);
 begin

@@ -4,6 +4,8 @@ interface
 
 const
   WM_USER = 1024;
+  CM_DESTROING = WM_USER + 1;
+  CRLF = sLineBreak;
 
 resourcestring
   //Collections
@@ -11,10 +13,13 @@ resourcestring
   sDuplicatesNotAllowed = 'List does not allow duplicates';
   sOutOfRange = 'Argument out of range';
   sCapacityError = 'List capacity out of bounds (%d)';
+
   sNodeIsAttached = 'Node alreday attached to list';
   sNodeIsAttachedAnother = 'Node alreday attached to another list';
   sNodeNotSpecified = 'Parameter Node not specified';
   sNodeNotAssigned = 'Node not assigned';
+  sListNoContainsNode = 'List doesn''''t contains node';
+  sModeNotSupported = 'Mode %s not supported in %s';
 
   //Async
   sInvalidExit = 'Before closing the application, ''%s'' must be stopped';

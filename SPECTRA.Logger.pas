@@ -3,8 +3,12 @@ unit SPECTRA.Logger;
 interface
 
 uses
-  SPECTRA.Consts, SPECTRA.Collections, SPECTRA.Messages, Vcl.StdCtrls,
-  System.SysUtils;
+  {$IF NOT DECLARED(FireMonkeyVersion)}
+    Vcl.StdCtrls,
+  {$ELSE}
+    FMX.Memo,
+  {$IFEND}
+  SPECTRA.Consts, SPECTRA.Messages, System.SysUtils, SPECTRA.List;
 
 const
   CM_LOG = WM_USER + 1;

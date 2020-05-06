@@ -3,11 +3,19 @@ unit SPECTRA.Exception;
 interface
 
 uses
-  Winapi.Windows, Winapi.Messages, System.SysUtils, System.Variants, System.Classes, Vcl.Graphics,
-  Vcl.Controls, Vcl.Forms, Vcl.Dialogs, Vcl.StdCtrls;
+  {$IFDEF MSWINDOWS}
+    Winapi.Windows, Winapi.Messages, Winapi.ActiveX,
+      {$IF NOT DECLARED(FireMonkeyVersion)}
+        Vcl.Graphics, Vcl.Controls, Vcl.Forms, Vcl.Dialogs, Vcl.StdCtrls, Vcl.ExtCtrls,
+      {$ENDIF}
+  {$ENDIF MSWINDOWS}
+  System.SysUtils, System.Variants, System.Classes;
 
 
+  {$IFDEF MSWINDOWS}
   procedure ShowExceptionForm(Show: boolean);
+  {$ENDIF MSWINDOWS}
+  procedure ErrorLog(Enabled: boolean);
 
 var
   FErrorLogFullPath: string;
@@ -15,103 +23,94 @@ var
 implementation
 
 uses
-  Vcl.ExtCtrls, SPECTRA.Consts, JclHookExcept, JclDebug;
+  SPECTRA.Consts, SPECTRA.Detour, JclHookExcept, JclDebug;
 
+{$IFDEF MSWINDOWS}
 type
-  PAbsoluteIndirectJmp = ^TAbsoluteIndirectJmp;
-  TAbsoluteIndirectJmp = packed record
-    OpCode: Word;  // $FF25(Jmp, FF /4)
-    Addr: DWORD;  // 32-bit address
-                  // in 32-bit mode: it is a direct jmp address to target method
-                  // in 64-bit mode: it is a relative pointer to a 64-bit address used to jmp to target method
-  end;
-
-  PInstruction = ^TInstruction;
-  TInstruction = packed record
-    Opcode: Byte;
-    Offset: Integer;
-  end;
-
   TSubApplication = class(TApplication)
   public
     procedure ShowException(E: Exception);
   end;
+{$ENDIF MSWINDOWS}
 
 var
-  FShowExceptionForm: boolean;
   FHideModules: TStringList;
   FExceptAddr: Pointer;
+  ErrorLogEnabled: boolean;
+{$IFDEF MSWINDOWS}
+  FShowExceptionForm: boolean;
   frm: TForm;
   mem: TMemo;
   lbl: TLabel;
   pnlBottom: TPanel;
-  btnExpand: TButton;
-  FOldAddress: Pointer;
+  btnExpand: TLabel; //TButton;
+{$ENDIF MSWINDOWS}
 
-
-function GetActualAddr(Proc: Pointer): Pointer;
+procedure ErrorLog(Enabled: boolean);
 begin
-  Result := Proc;
-  if Result <> nil then
-    if PAbsoluteIndirectJmp(Result)^.OpCode = $25FF then  // we need to understand if it is proc entry or a jmp following an address
-{$ifdef CPUX64}
-      Result := PPointer( NativeInt(Result) + PAbsoluteIndirectJmp(Result)^.Addr + SizeOf(TAbsoluteIndirectJmp))^;
-      // in 64-bit mode target address is a 64-bit address (jmp qword ptr [32-bit relative address] FF 25 XX XX XX XX)
-      // The address is in a loaction pointed by ( Addr + Current EIP = XX XX XX XX + EIP)
-      // We also need to add (instruction + operand) size (SizeOf(TAbsoluteIndirectJmp)) to calculate relative address
-      // XX XX XX XX + Current EIP + SizeOf(TAbsoluteIndirectJmp)
-{$else}
-      Result := PPointer(PAbsoluteIndirectJmp(Result)^.Addr)^;
-      // in 32-bit it is a direct address to method
-{$endif}
-end;
-
-procedure PatchCode(Address: Pointer; const NewCode; Size: Integer);
-var
-  OldProtect: DWORD;
-begin
-  if VirtualProtect(Address, Size, PAGE_EXECUTE_READWRITE, OldProtect) then //FM: remove the write protect on Code Segment
-  begin
-    Move(NewCode, Address^, Size);
-    FlushInstructionCache(GetCurrentProcess, Address, Size);
-    VirtualProtect(Address, Size, OldProtect, @OldProtect); // restore write protection
-  end;
-end;
-
-procedure RedirectProcedure(OldAddress, NewAddress: Pointer);
-var
-  NewCode: TInstruction;
-begin
-  OldAddress := GetActualAddr(OldAddress);
-
-  NewCode.Opcode := $E9;//jump relative
-  NewCode.Offset := NativeInt(NewAddress) - NativeInt(OldAddress) - SizeOf(NewCode);
-
-  PatchCode(OldAddress, NewCode, SizeOf(NewCode));
+  ErrorLogEnabled:= Enabled;
 end;
 
 procedure Show_Exception(E: Exception);
 begin
 end;
 
-
 procedure ShowExceptionForm(Show: boolean);
 begin
   FShowExceptionForm:= Show;
 
   if Show then
+    RedirectProcedure(@TApplication.ShowException,@Show_Exception)
+  else
+    RedirectProcedure(@TApplication.ShowException,@TSubApplication.ShowException);
+end;
+
+{$IFDEF MSWINDOWS}
+const
+  cHgt = 240;
+
+procedure Expand(Sender: TObject);
+var
+  dlg: TSaveDialog;
+begin
+  if pnlBottom.Height = 42 then
   begin
-    FOldAddress:= @TApplication.ShowException;
-    RedirectProcedure(@TApplication.ShowException,@Show_Exception);
+    pnlBottom.Height:= 280;
+    frm.Height:= frm.Height + cHgt;
+    frm.Constraints.MinHeight:= 170 + cHgt;
+    frm.Constraints.MaxHeight:= frm.Height;
+    frm.Width:= frm.Width + 200;
+    btnExpand.Caption:= 'Сохранить отчет';  //<<
   end else
   begin
-    RedirectProcedure(@TApplication.ShowException,@TSubApplication.ShowException);
+    dlg:= TSaveDialog.Create(nil);
+    try
+      dlg.Filter:= 'Text files (*.txt)|*.txt';
+      dlg.DefaultExt:= '.txt';
+      dlg.FileName:= 'Отчет об ошибке';
+      if dlg.Execute() then
+        if dlg.FileName <> '' then
+          mem.Lines.SaveToFile(dlg.FileName);
+
+      frm.BringToFront;
+    finally
+      dlg.Free;
+    end;
   end;
 end;
 
 procedure ShowForm(ErrorInfo: TStringList; ErrMsg: string);
 begin
-  if pnlBottom.Height <> 42 then btnExpand.Click;
+  if pnlBottom.Height <> 42 then  //Expand(nil); //btnExpand.Click;
+  begin
+    pnlBottom.Height:= 42;
+    frm.Constraints.MinHeight:= 170;
+    frm.Height:= frm.Height - cHgt;
+    frm.Constraints.MaxHeight:= frm.Height + 160;
+    frm.Width:= frm.Width - 200;
+    btnExpand.Caption:= 'Отчет';  //>>
+  end;
+
   frm.Width:= 400;
   frm.Height:= 170;
   frm.Constraints.MinHeight:= 170;
@@ -121,30 +120,11 @@ begin
   mem.Clear;
   mem.Lines.AddStrings(ErrorInfo);
   lbl.Caption:= ErrMsg;
-  {$IFDEF MSWINDOWS}
-    MessageBeep(MB_ICONERROR);
-  {$ENDIF}
+
+  MessageBeep(MB_ICONERROR);
   frm.ShowModal;
 end;
 
-procedure Expand(Sender: TObject);
-begin
-  if pnlBottom.Height = 42 then
-  begin
-    pnlBottom.Height:= 200;
-    frm.Height:= frm.Height + 160;
-    frm.Constraints.MinHeight:= 170 + 160;
-    frm.Constraints.MaxHeight:= frm.Height;
-    btnExpand.Caption:= 'Details <<';
-  end else
-  begin
-    pnlBottom.Height:= 42;
-    frm.Constraints.MinHeight:= 170;
-    frm.Height:= frm.Height - 160;
-    frm.Constraints.MaxHeight:= frm.Height + 160;
-    btnExpand.Caption:= 'Details >>';
-  end;
-end;
 
 procedure CreateForm;
 var
@@ -162,7 +142,8 @@ begin
   frm.Position:= poScreenCenter;
   frm.Caption:= Application.Title;
   frm.Icon:= Application.Icon;
-  frm.BorderIcons:= [biSystemMenu];
+//  frm.BorderIcons:= [biSystemMenu];
+  frm.BorderStyle:= bsDialog;
   frm.Color:= clWindow;
   frm.Constraints.MinHeight:= 170;
   frm.Constraints.MinWidth:= 400;
@@ -220,15 +201,18 @@ begin
   btnOK.Top:= 5;
   btnOK.Anchors:= [akRight,akBottom];
 
-  btnExpand:= TButton.Create(frm);
+  btnExpand:= TLabel.Create(frm); //TButton.Create(frm);
   btnExpand.Parent:= pnlButton;
-  btnExpand.Caption:= 'Details >>';
-  btnExpand.ModalResult:= mrNone;
-  btnExpand.Width:= 90;
-  btnExpand.Height:= 30;
+  btnExpand.Caption:= 'Отчет';
+  //btnExpand.ModalResult:= mrNone;
+//  btnExpand.Width:= 90;
+//  btnExpand.Height:= 30;
   btnExpand.Left:= 5;
-  btnExpand.Top:= 5;
+  btnExpand.Top:= 14; //5;
   btnExpand.Anchors:= [akLeft,akBottom];
+  btnExpand.Font.Color:= clBlue;
+  btnExpand.Font.Style:= [fsUnderline];
+  btnExpand.Cursor:= crHandPoint;
 
   Method.Code:= @Expand;
   Method.Data:= btnExpand;
@@ -249,7 +233,6 @@ begin
   mem.Margins.Bottom:= 0;
   mem.Clear;
 
-  {$IFDEF MSWINDOWS}
   Ico:= TIcon.Create;
   try
     Ico.Handle:= LoadIcon(0, IDI_ERROR);
@@ -258,8 +241,9 @@ begin
   finally
     Ico.Free;
   end;
-  {$ENDIF}
 end;
+{$ENDIF MSWINDOWS}
+
 
 function StrRepeat(const S: string; Count: Integer): string;
 var
@@ -303,6 +287,8 @@ var
   ErrMsg: string;
 begin
   ErrMsg:= 'Error';
+
+  if not FShowExceptionForm and not ErrorLogEnabled then Exit;
 
   if (FExceptAddr = ExceptAddr) and (ExceptAddr <> nil) then Exit;
 
@@ -354,21 +340,27 @@ begin
 
     Str.Add(StrRepeat('-', 78));
 
-    slFile:= TStringList.Create;
-    try
-      if FileExists(FErrorLogFullPath) then
-      begin
-        slFile.LoadFromFile(FErrorLogFullPath);
-        slFile.Add(#13#10);
+    if ErrorLogEnabled then
+    begin
+      slFile:= TStringList.Create;
+      try
+        if FileExists(FErrorLogFullPath) then
+        begin
+          slFile.LoadFromFile(FErrorLogFullPath);
+          slFile.Add(#13#10);
+        end;
+        slFile.AddStrings(Str);
+        slFile.SaveToFile(FErrorLogFullPath);
+      finally
+        slFile.Free;
       end;
-      slFile.AddStrings(Str);
-      slFile.SaveToFile(FErrorLogFullPath);
-    finally
-      slFile.Free;
     end;
 
-    if FShowExceptionForm then ShowForm(Str, ErrMsg);
-
+   {$IF NOT DECLARED(FireMonkeyVersion)}
+     {$IFDEF MSWINDOWS}
+       if FShowExceptionForm then ShowForm(Str, ErrMsg);
+     {$ENDIF MSWINDOWS}
+   {$ENDIF}
   finally
     Str.Free;
   end;
@@ -396,7 +388,7 @@ begin
   end;
   if (Msg <> '') and (Msg[Length(Msg)] > '.') then Msg := Msg + '.';
 {$IF DEFINED(CLR)}
-  MessageBox(Msg, GetTitle,
+  MessageBox(Msg, Application.Title,
 {$ELSE}
   MessageBox(PChar(Msg), PChar(Application.Title),
 {$ENDIF}
@@ -404,6 +396,7 @@ begin
 end;
 
 initialization
+   ErrorLogEnabled:= true;
    FShowExceptionForm:= false;
    FErrorLogFullPath:= '';
    FExceptAddr:= nil;
@@ -417,6 +410,8 @@ initialization
                        'Data'+#13+#10+
                        'Logger'+#13+#10+
                        'OML'+#13+#10+
+                       'FireDAC'+#13+#10+
+                       'FMX'+#13+#10+
                        'xml';
    CreateForm;
 

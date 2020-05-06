@@ -3,13 +3,12 @@ unit SPECTRA.Messages;
 interface
 
 uses
-  {$IFDEF MSWINDOWS}
-  Vcl.ExtCtrls,
+  {$IF NOT DECLARED(FireMonkeyVersion)}
+    Vcl.ExtCtrls,
   {$ELSE}
-  FMX.Types,
-  {$ENDIF MSWINDOWS}
-  System.Classes, SPECTRA.Collections,
-  System.SysUtils;
+    FMX.Types,
+  {$IFEND}
+  System.Classes, System.SysUtils, SPECTRA.List, SPECTRA.LinkedList;
 
 type
   TMessageBase = class abstract;
@@ -86,7 +85,7 @@ type
     FSendResult: NativeInt;
     FSendDone: boolean;
     FUnSubscribeList: TSubList<Integer>;
-    FPostQueue: ILinkedList<TMessageQueue>; //TSubList<TMessageQueue>;
+    FPostQueue: TLinkedList<TMessageQueue>; //TSubList<TMessageQueue>;
     FMessageCountList: TSubList<TMessageCount>;
     FPostPriority: boolean;
     FProcessing: boolean;
@@ -156,6 +155,11 @@ type
     property PostPriority: boolean read FPostPriority write FPostPriority;
   end;
 
+  function Send_Message(const Descriptor, MessageID: NativeUInt; WPararm: NativeUInt; LPararm: NativeInt): NativeInt; overload;
+  function Send_Message(MessageID: NativeUInt; WPararm: NativeUInt; LPararm: NativeInt): NativeInt; overload;
+  procedure Post_Message(const Descriptor, MessageID: NativeUInt; WPararm: NativeUInt; LPararm: NativeInt); overload;
+  procedure Post_Message(MessageID: NativeUInt; WPararm: NativeUInt; LPararm: NativeInt); overload;
+
 var
   Msgs: TMessages;
 
@@ -163,6 +167,26 @@ implementation
 
 uses
   System.Types, System.Generics.Defaults, System.SyncObjs;
+
+function Send_Message(const Descriptor, MessageID: NativeUInt; WPararm: NativeUInt; LPararm: NativeInt): NativeInt;
+begin
+  Result:= TMessages.GetMessagesManager.SendMessage(Descriptor, MessageID, WPararm, LPararm);
+end;
+
+function Send_Message(MessageID: NativeUInt; WPararm: NativeUInt; LPararm: NativeInt): NativeInt;
+begin
+  Result:= TMessages.GetMessagesManager.SendMessage(MessageID, WPararm, LPararm);
+end;
+
+procedure Post_Message(const Descriptor, MessageID: NativeUInt; WPararm: NativeUInt; LPararm: NativeInt);
+begin
+  TMessages.GetMessagesManager.PostMessage(Descriptor, MessageID, WPararm, LPararm);
+end;
+
+procedure Post_Message(MessageID: NativeUInt; WPararm: NativeUInt; LPararm: NativeInt);
+begin
+  TMessages.GetMessagesManager.PostMessage(MessageID, WPararm, LPararm);
+end;
 
 { TMessageEx<T> }
 
@@ -251,7 +275,7 @@ begin
 //      if Assigned(Item.FMessage) then
 //        FreeAndNil(Item.FMessage);
 //    end);
-//  FPostQueue.Free;
+  FPostQueue.Free;
 
   FUnSubscribeList.Free;
   FListenersList.Free;
@@ -261,7 +285,7 @@ end;
 
 class constructor TMessages.Create;
 begin
-  Msgs:= TMessages.GetMessagesManager;
+  TMessages.GetMessagesManager;
 end;
 
 class destructor TMessages.Destroy;
@@ -283,6 +307,7 @@ begin
   if FMessagesManager = nil then
     FMessagesManager := TMessages.Create;
 
+  Msgs:= FMessagesManager;
   Result:= FMessagesManager;
 end;
 
@@ -593,7 +618,7 @@ begin
 
     FProcessing:= true;
 
-    Item:= FPostQueue.ExtractLast;  //FPostQueue.Extract(FPostQueue.Count-1);
+    Item:= FPostQueue.ExtractLast;   //FPostQueue.Extract(FPostQueue.Count-1);
     IterateAndPostMessage(Item.FDescriptor,
                           Item.FMessageID,
                           Item.FAsync,
